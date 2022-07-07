@@ -1,0 +1,145 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Systems Manager Document Creation.
+Resources:
+  ShellScriptDocument:
+    Type: 'AWS::SSM::Document'
+    Properties:
+      DocumentType: Command
+      Name: EC2PatchingCheck
+      TargetType: '/AWS::EC2::Instance'
+      Content:
+        schemaVersion: '2.2'
+        description: Command Document Example JSON Template
+        parameters:
+          MessageLinux:
+            type: String
+            default: SecurityUpdates
+            description: Hello From Linux
+          MessageWin:
+            type: String
+            default: SecurityUpdates
+            description: Hello From Windows
+          MetadataEC2:
+            type: String
+            description: Account ID
+            default: >-
+              http://169.254.169.254/latest/dynamic/instance-identity/document
+          MetaDataEC2Win:
+            type: String
+            description: Account ID
+            default: >-
+              Invoke-RestMethod -Uri http://169.254.169.254/latest/dynamic/instance-identity/document
+        mainSteps:
+          - action: 'aws:runShellScript'
+            name: exampleLinux
+            precondition:
+              StringEquals:
+              - platformType
+              - Linux
+            inputs:
+              runcommand:
+                - 'echo {{MessageLinux}}'
+                - 'curl -s {{MetadataEC2}}'
+          - action: 'aws:runPowerShellScript'
+            name: exampleWindows
+            precondition:
+              StringEquals:
+              - platformType
+              - Windows
+            inputs:
+              runcommand:
+                - 'echo {{MessageWin}}'
+                - '{{MetaDataEC2Win}}'
+  AllInstanceIdsAssociation:
+    Type: 'AWS::SSM::Association'
+    DependsOn: ShellScriptDocument
+    Properties:
+      AssociationName: EC2Patching
+      Name: EC2PatchingCheck
+      ScheduleExpression: cron(0/30 * * * ? *)
+      Targets:
+        - Key: InstanceIds
+          Values:
+            - '*'
+      OutputLocation:
+        S3Location: 
+          OutputS3BucketName: beyondcloudsystemsmanagerassociation20220987
+  EC2InstanceProfileForSystemsManager:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: ec2-instance-profile-systems-manager
+      Path: /
+      Roles:
+       - !Ref EC2RoleForSSMandS3
+  EC2RoleForSSMandS3:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ec2-role-for-ssm-s3
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+         - Effect: Allow
+           Principal:
+             Service:
+              - ec2.amazonaws.com
+              - ssm.amazonaws.com
+           Action:
+            - sts:AssumeRole
+      Path: /
+  EC2RoleForSSMandS3Policy:
+    Type: AWS::IAM::Policy
+    Properties:
+      Roles: 
+       - !Ref EC2RoleForSSMandS3
+      PolicyName: ec2-role-for-ssm-s3-policy
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+              - s3:PutObject
+              - s3:GetObject
+              - s3:GetObjectVersion
+              - s3:ListBucket
+              - s3:GetBucketLocation
+              - s3:GetBucketVersioning
+              - s3:ListBucketVersions
+              - s3:GetBucketAcl
+              - s3:PutBucketAcl
+              - s3:GetObjectAcl
+              - s3:PutObjectAcl
+            Resource: arn:aws:s3:::beyondcloudsystemsmanagerassociation20220987/*
+          - Effect: Allow
+            Action:
+              - ssm:DescribeAssociation
+              - ssm:GetDeployablePatchSnapshotForInstance
+              - ssm:GetDocument
+              - ssm:DescribeDocument
+              - ssm:GetManifest
+              - ssm:GetParameter
+              - ssm:GetParameters
+              - ssm:ListAssociations
+              - ssm:ListInstanceAssociations
+              - ssm:PutInventory
+              - ssm:PutComplianceItems
+              - ssm:PutConfigurePackageResult
+              - ssm:UpdateAssociationStatus
+              - ssm:UpdateInstanceAssociationStatus
+              - ssm:UpdateInstanceInformation
+            Resource: "*"
+          - Effect: Allow
+            Action:
+              - ssmmessages:CreateControlChannel
+              - ssmmessages:CreateDataChannel
+              - ssmmessages:OpenControlChannel
+              - ssmmessages:OpenDataChannel
+            Resource: "*"
+          - Effect: Allow
+            Action:
+              - ec2messages:AcknowledgeMessage
+              - ec2messages:DeleteMessage
+              - ec2messages:FailMessage
+              - ec2messages:GetEndpoint
+              - ec2messages:GetMessages
+              - ec2messages:SendReply
+            Resource: "*"
